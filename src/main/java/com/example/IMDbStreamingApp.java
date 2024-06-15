@@ -7,6 +7,9 @@ import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.StructType;
 
+import static org.apache.spark.sql.functions.avg;
+import static org.apache.spark.sql.functions.col;
+
 public class IMDbStreamingApp {
 
     public static StructType schema = new StructType()
@@ -36,6 +39,13 @@ public class IMDbStreamingApp {
         query.awaitTermination();
     }
 
+    public static Dataset<Row> calculateMovieRanking(SparkSession spark, Dataset<Row> movies) {
+        Dataset<Row> avgNumVotes = movies.agg(avg("numVotes").alias("avgNumVotes"));
+
+        return movies.crossJoin(avgNumVotes).withColumn("ranking",
+                col("numVotes").divide(col("avgNumVotes")).multiply(col("averageRating")));
+    }
+
     /**
      * Returns top movies that have a minimum number of ratings
      *
@@ -46,7 +56,10 @@ public class IMDbStreamingApp {
      * @return Dataset with the top movies that have at least minVotes votes.
      */
     public static Dataset<Row> getTopRatedMovies(SparkSession spark, Dataset<Row> movies, Integer minVotes, Integer numberSelection) {
-        return movies.filter("numVotes >= " + minVotes);
+
+        Dataset<Row> filteredMovies = movies.filter("numVotes >= " + minVotes);
+
+        return calculateMovieRanking(spark, filteredMovies);
     }
 
 }
