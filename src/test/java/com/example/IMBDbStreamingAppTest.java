@@ -60,6 +60,13 @@ public class IMBDbStreamingAppTest {
 
     }
 
+    private List<Pair<String, Double>> extraMoviesAndRatings(Dataset<Row> rankedMovies) {
+        return rankedMovies.select(col("tconst"), col("ranking"))
+                .collectAsList().stream()
+                .map(row -> Pair.with(row.getString(0), BigDecimal.valueOf(row.getDouble(1)).setScale(2,
+                        RoundingMode.DOWN).doubleValue())).collect(Collectors.toList());
+    }
+
     @Test
     public void testCalculateMovieRanking() {
         Dataset<Row> input = createTitleRatingsDataset(
@@ -68,19 +75,38 @@ public class IMBDbStreamingAppTest {
                         Triplet.with("t2", 7.5, 1000)
                 )
         );
-        List<Pair<String, Double>> titlesWithRankings = IMDbStreamingApp
-                .calculateMovieRanking(spark, input)
-                .select(col("tconst"), col("ranking"))
-                .collectAsList().stream()
-                .map(row -> Pair.with(row.getString(0), BigDecimal.valueOf(row.getDouble(1)).setScale(2,
-                        RoundingMode.DOWN).doubleValue())).collect(Collectors.toList());
-        System.out.println(titlesWithRankings);
+        List<Pair<String, Double>> titlesWithRankings = extraMoviesAndRatings(
+                IMDbStreamingApp.calculateMovieRanking(spark, input)
+        );
         assertTrue(titlesWithRankings.containsAll(
                 Arrays.asList(
                         Pair.with("t1", 3.73),
                         Pair.with("t2", 10.0))
         ));
 
+    }
+
+    @Test
+    public void testGetTopRatedMoviesSelectsTheTopRankedMovies() {
+        Dataset<Row> input = createTitleRatingsDataset(
+                Arrays.asList(
+                        Triplet.with("t1", 8.5, 700),
+                        Triplet.with("t2", 5.6, 2000),
+                        Triplet.with("t3", 7.5, 500),
+                        Triplet.with("t4", 8.5, 800),
+                        Triplet.with("t4", 10.0, 450)
+                )
+        );
+        List<Pair<String, Double>> topRankedMovies = extraMoviesAndRatings(
+                IMDbStreamingApp.getTopRatedMovies(spark, input, 500, 3)
+        );
+        assertEquals(topRankedMovies.size(), 3);
+        assertEquals(topRankedMovies,
+                Arrays.asList(
+                        Pair.with("t2", 11.2),
+                        Pair.with("t4", 6.8),
+                        Pair.with("t1", 5.94))
+        );
     }
 
 

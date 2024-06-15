@@ -39,6 +39,13 @@ public class IMDbStreamingApp {
         query.awaitTermination();
     }
 
+    /**
+     * Calculates each movie's ranking following the formula: (numVotes/averageNumberOfVotes) * averageRating
+     *
+     * @param spark  Spark session
+     * @param movies Dataset with the IMBDb Movies, their avg rating and the number of votes
+     * @return Dataset with the movies and their ranking
+     */
     public static Dataset<Row> calculateMovieRanking(SparkSession spark, Dataset<Row> movies) {
         Dataset<Row> avgNumVotes = movies.agg(avg("numVotes").alias("avgNumVotes"));
 
@@ -47,7 +54,7 @@ public class IMDbStreamingApp {
     }
 
     /**
-     * Returns top movies that have a minimum number of ratings
+     * Returns top ranked movies that have a minimum number of ratings
      *
      * @param spark           Spark session
      * @param movies          Dataset with the IMBDb Movies, their avg rating and the number of votes
@@ -58,8 +65,9 @@ public class IMDbStreamingApp {
     public static Dataset<Row> getTopRatedMovies(SparkSession spark, Dataset<Row> movies, Integer minVotes, Integer numberSelection) {
 
         Dataset<Row> filteredMovies = movies.filter("numVotes >= " + minVotes);
+        Dataset<Row> rankedMovies = calculateMovieRanking(spark, filteredMovies);
+        return rankedMovies.orderBy(col("ranking").desc()).limit(numberSelection);
 
-        return calculateMovieRanking(spark, filteredMovies);
     }
 
 }
