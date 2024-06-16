@@ -1,9 +1,8 @@
 package com.example;
 
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.RowFactory;
-import org.apache.spark.sql.SparkSession;
+import org.apache.spark.api.java.function.MapFunction;
+import org.apache.spark.sql.*;
+import org.apache.spark.sql.types.StructType;
 import org.javatuples.Pair;
 import org.javatuples.Quartet;
 import org.junit.Before;
@@ -60,7 +59,7 @@ public class IMBDbStreamingAppTest {
 
     }
 
-    private List<Pair<String, Double>> extraMoviesAndRatings(Dataset<Row> rankedMovies) {
+    private List<Pair<String, Double>> extractMoviesAndRatings(Dataset<Row> rankedMovies) {
         return rankedMovies.select(col("tconst"), col("ranking"))
                 .collectAsList().stream()
                 .map(row -> Pair.with(row.getString(0), BigDecimal.valueOf(row.getDouble(1)).setScale(2,
@@ -75,7 +74,7 @@ public class IMBDbStreamingAppTest {
                         Quartet.with("t2", 7.5, 1000, java.sql.Timestamp.valueOf("2024-06-15 22:41:00"))
                 )
         );
-        List<Pair<String, Double>> titlesWithRankings = extraMoviesAndRatings(calculateMovieRanking(input));
+        List<Pair<String, Double>> titlesWithRankings = extractMoviesAndRatings(calculateMovieRanking(input));
         assertTrue(titlesWithRankings.containsAll(
                 Arrays.asList(
                         Pair.with("t1", 3.73),
@@ -92,15 +91,52 @@ public class IMBDbStreamingAppTest {
                         Quartet.with("t2", 5.6, 2000, java.sql.Timestamp.valueOf("2024-06-15 22:41:00")),
                         Quartet.with("t3", 7.5, 500, java.sql.Timestamp.valueOf("2024-06-15 22:42:00")),
                         Quartet.with("t4", 8.5, 800, java.sql.Timestamp.valueOf("2024-06-15 22:43:00")),
-                        Quartet.with("t4", 10.0, 450, java.sql.Timestamp.valueOf("2024-06-15 22:41:30"))
+                        Quartet.with("t5", 10.0, 450, java.sql.Timestamp.valueOf("2024-06-15 22:41:30"))
                 )
         );
-//        List<Pair<String, Double>> topRankedMovies = extraMoviesAndRatings(getTopRatedMovies(input, 500, 3));
+
+        StructType topRankedMoviesSchema = new StructType()
+                .add("tconst", "string")
+                .add("ranking", "double");
+
+        List<Pair<String, Double>> topRankedMovies = extractMoviesAndRatings(getTopRatedMovies(input, 500, 3)
+                .map((MapFunction<Movie, Row>) movie -> RowFactory.create(movie.getTconst(), movie.getRanking()),
+                        Encoders.row(topRankedMoviesSchema)));
         List<Movie> topRatedMovies = getTopRatedMovies(input, 500, 3).collectAsList();
         assertEquals(topRatedMovies.size(), 3);
-//        assertEquals(Arrays.asList(Pair.with("t2", 11.2), Pair.with("t4", 6.8), Pair.with("t1", 5.94)),
-//                topRankedMovies);
+        assertEquals(Arrays.asList(Pair.with("t2", 11.2), Pair.with("t4", 6.8), Pair.with("t1", 5.94)),
+                topRankedMovies);
     }
 
+    @Test
+    public void testCalculateMostCredited() {
+        List<Movie> topRankedMovies = Arrays.asList(
+                new Movie("t1", 7.8, 5000, 8.5),
+                new Movie("t2", 7.6, 3500, 8.0),
+                new Movie("t3", 7.5, 4000, 7.2),
+                new Movie("t4", 6.5, 7000, 7.0),
+                new Movie("t5", 6.2, 1500, 5.5)
+        );
+        List<Row> principalRows = Arrays.asList(
+                RowFactory.create("t1", 1, "n1", "director", "director", "NA"),
+                RowFactory.create("t1", 2, "n2", "producer", "producer", "NA"),
+                RowFactory.create("t1", 3, "n3", "actor", "actor", "John Smith"),
+                RowFactory.create("t2", 1, "n1", "director", "director", "NA"),
+                RowFactory.create("t2", 2, "n4", "producer", "producer", "NA"),
+                RowFactory.create("t2", 3, "n2", "actor", "actor", "Main character"),
+                RowFactory.create("t3", 1, "n5", "director", "director", "NA"),
+                RowFactory.create("t3", 2, "n2", "producer", "producer", "NA"),
+                RowFactory.create("t3", 3, "n6", "actor", "actor", "Main character"),
+                RowFactory.create("t4", 1, "n3", "director", "director", "NA"),
+                RowFactory.create("t4", 2, "n1", "producer", "producer", "NA")
+        );
+        Dataset<Row> result = calculateMostCredited(spark.createDataFrame(principalRows, titlePrincipalsSchema),
+                spark.createDataset(topRankedMovies, Encoders.bean(Movie.class)), 3);
+
+        assertEquals(3, result.count());
+        assertEquals(Arrays.asList(RowFactory.create("n1", 3), RowFactory.create("n2", 3), RowFactory.create("n3", 2)),
+                result.collectAsList());
+
+    }
 
 }

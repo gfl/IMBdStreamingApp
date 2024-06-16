@@ -3,6 +3,7 @@ package com.example;
 import java.io.Serializable;
 
 public class Movie implements Serializable {
+
     private String tconst;
     private double averageRating;
     private int numVotes;

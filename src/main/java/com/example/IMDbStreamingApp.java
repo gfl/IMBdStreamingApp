@@ -23,6 +23,14 @@ public class IMDbStreamingApp {
             .add("numVotes", "integer")
             .add("timestamp", "timestamp");
 
+    public static StructType titlePrincipalsSchema = new StructType()
+            .add("tconst", "string")
+            .add("ordering", "integer")
+            .add("nconst", "string")
+            .add("category", "string")
+            .add("job", "string")
+            .add("characters", "string");
+
     public static void main(String[] args) throws Exception {
 
         if (args.length < 1) {
@@ -49,15 +57,48 @@ public class IMDbStreamingApp {
 
         Dataset<Movie> topRatedMovies = getTopRatedMovies(titlesWithRatings, 500, 10);
 
+        Dataset<Row> titlePrincipals = spark.readStream().option("sep", "\t").schema(titlePrincipalsSchema)
+                .csv(inputPath + "title.principals*.tsv")
+                .withColumn("timestamp", current_timestamp())
+                .withWatermark("timestamp", "1 minute");
+
+        Dataset<Row> mostCreditedPersons = calculateMostCredited(titlePrincipals, topRatedMovies, 10);
+
         // Start the query to continuously display the top 10 movies
-        StreamingQuery query = topRatedMovies.writeStream()
+        StreamingQuery query1 = topRatedMovies.writeStream()
                 .outputMode("append")
                 .format("console")
                 .trigger(Trigger.ProcessingTime("10 seconds"))
                 .start();
 
+        StreamingQuery query2 = mostCreditedPersons.writeStream()
+                .outputMode("complete")
+                .format("console")
+                .trigger(Trigger.ProcessingTime("10 seconds"))
+                .start();
+
         // Await termination
-        query.awaitTermination();
+        query1.awaitTermination();
+        query2.awaitTermination();
+    }
+
+    /**
+     * Calculates the most credited people from the top 10 rated movies
+     *
+     * @param titlePrincipals Dataset with the top people involved in each movie
+     * @param top10Movies Dataset with the top 10 rated movies
+     * @param numberSelection number of people to select
+     * @return Dataset with the most credited people from the top 10 movies
+     */
+    public static Dataset<Row> calculateMostCredited(Dataset<Row> titlePrincipals, Dataset<Movie> top10Movies, Integer numberSelection) {
+
+        Dataset<String> top10MoviesIds = top10Movies.map((MapFunction<Movie, String>) Movie::getTconst, Encoders.STRING());
+        Dataset<Row> top10Credits = top10MoviesIds.join(titlePrincipals, expr("value == tconst"));
+
+        return top10Credits.groupBy("nconst")
+                .count()
+                .orderBy(col("count").desc())
+                .limit(numberSelection);
     }
 
     /**
@@ -104,7 +145,7 @@ public class IMDbStreamingApp {
         final FlatMapGroupsWithStateFunction<String, Movie, TopMoviesState, Movie> top10MoviesFunc = (key, values, state) -> {
             List<Movie> topMovies = state.exists() ? state.get().getTopMovies() : new ArrayList<>();
             values.forEachRemaining(topMovies::add);
-            topMovies.sort(Comparator.comparingDouble(Movie::getRanking));
+            topMovies.sort(Comparator.comparingDouble(Movie::getRanking).reversed());
             if (topMovies.size() > numberSelection) {
                 topMovies = topMovies.subList(0, numberSelection);
             }
