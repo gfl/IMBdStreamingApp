@@ -11,6 +11,12 @@ public class Movie implements Serializable {
 
     public Movie() {}
 
+    public Movie(String tconst, double averageRating, int numVotes) {
+        this.tconst = tconst;
+        this.averageRating = averageRating;
+        this.numVotes = numVotes;
+    }
+
     public Movie(String tconst, double averageRating, int numVotes, double ranking) {
         this.tconst = tconst;
         this.averageRating = averageRating;
@@ -49,5 +55,6 @@ public class Movie implements Serializable {
     public void setRanking(double ranking) {
         this.ranking = ranking;
     }
+
 }
 

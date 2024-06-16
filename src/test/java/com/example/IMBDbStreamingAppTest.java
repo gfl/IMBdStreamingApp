@@ -1,6 +1,5 @@
 package com.example;
 
-import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.types.StructType;
 import org.javatuples.Pair;
@@ -16,7 +15,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import static com.example.IMDbStreamingApp.*;
-import static org.apache.spark.sql.functions.col;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -59,30 +57,6 @@ public class IMBDbStreamingAppTest {
 
     }
 
-    private List<Pair<String, Double>> extractMoviesAndRatings(Dataset<Row> rankedMovies) {
-        return rankedMovies.select(col("tconst"), col("ranking"))
-                .collectAsList().stream()
-                .map(row -> Pair.with(row.getString(0), BigDecimal.valueOf(row.getDouble(1)).setScale(2,
-                        RoundingMode.DOWN).doubleValue())).collect(Collectors.toList());
-    }
-
-    @Test
-    public void testCalculateMovieRanking() {
-        Dataset<Row> input = createTitleRatingsDataset(
-                Arrays.asList(
-                        Quartet.with("t1", 5.6, 500, java.sql.Timestamp.valueOf("2024-06-15 22:40:00")),
-                        Quartet.with("t2", 7.5, 1000, java.sql.Timestamp.valueOf("2024-06-15 22:41:00"))
-                )
-        );
-        List<Pair<String, Double>> titlesWithRankings = extractMoviesAndRatings(calculateMovieRanking(input));
-        assertTrue(titlesWithRankings.containsAll(
-                Arrays.asList(
-                        Pair.with("t1", 3.73),
-                        Pair.with("t2", 10.0))
-        ));
-
-    }
-
     @Test
     public void testGetTopRatedMoviesSelectsTheTopRankedMovies() {
         Dataset<Row> input = createTitleRatingsDataset(
@@ -99,13 +73,15 @@ public class IMBDbStreamingAppTest {
                 .add("tconst", "string")
                 .add("ranking", "double");
 
-        List<Pair<String, Double>> topRankedMovies = extractMoviesAndRatings(getTopRatedMovies(input, 500, 3)
-                .map((MapFunction<Movie, Row>) movie -> RowFactory.create(movie.getTconst(), movie.getRanking()),
-                        Encoders.row(topRankedMoviesSchema)));
         List<Movie> topRatedMovies = getTopRatedMovies(input, 500, 3).collectAsList();
         assertEquals(topRatedMovies.size(), 3);
+        List<Pair<String, Double>> idsWithRankings = topRatedMovies.
+                stream()
+                .map(movie -> Pair.with(movie.getTconst(),
+                        BigDecimal.valueOf(movie.getRanking()).setScale(2, RoundingMode.DOWN).doubleValue()))
+                .collect(Collectors.toList());
         assertEquals(Arrays.asList(Pair.with("t2", 11.2), Pair.with("t4", 6.8), Pair.with("t1", 5.94)),
-                topRankedMovies);
+                idsWithRankings);
     }
 
     @Test
